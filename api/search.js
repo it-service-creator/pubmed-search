@@ -1,71 +1,79 @@
-// api/search.js
-export default async function handler(req, res) {
-    // Настройка CORS, чтобы запросы проходили
-    res.setHeader('Access-Control-Allow-Credentials', true);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-    res.setHeader(
-        'Access-Control-Allow-Headers',
-        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-    );
+import translate from 'google-translate-api-x';
 
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
+export default async function handler(req, res) {
+    // Настройки доступа (CORS)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    // Если это предварительный запрос браузера — отвечаем ОК
+    if (req.method === 'OPTIONS') return res.status(200).end();
 
     const { query } = req.body;
-
-    if (!query) {
-        return res.status(400).json({ answer: "Пожалуйста, введите поисковый запрос." });
-    }
+    
+    // Проверка, что запрос не пустой
+    if (!query) return res.status(400).json({ answer: "Пожалуйста, введите запрос." });
 
     try {
-        // 1. Поиск ID статей (ESearch)
+        // 1. Ищем ID статей в базе PubMed
+        // retmax=5 ограничивает выдачу 5 статьями (можно поменять на 10)
         const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&term=${encodeURIComponent(query)}&sort=relevance&retmax=5`;
         
-        const searchResponse = await fetch(searchUrl);
-        const searchData = await searchResponse.json();
-
+        const searchRes = await fetch(searchUrl);
+        const searchData = await searchRes.json();
         const ids = searchData.esearchresult.idlist;
 
+        // Если ничего не нашли
         if (!ids || ids.length === 0) {
-            return res.status(200).json({ 
-                answer: `По запросу **"${query}"** ничего не найдено в базе PubMed.` 
-            });
+            return res.status(200).json({ answer: `По запросу **"${query}"** ничего не найдено в базе PubMed.` });
         }
 
-        // 2. Получение деталей статей (ESummary)
+        // 2. Получаем подробную информацию по найденным ID
         const summaryUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&retmode=json&id=${ids.join(',')}`;
-        const summaryResponse = await fetch(summaryUrl);
-        const summaryData = await summaryResponse.json();
-        const articles = summaryData.result;
+        const sumRes = await fetch(summaryUrl);
+        const sumData = await sumRes.json();
+        const articles = sumData.result;
 
-        // 3. Формирование красивого ответа (Markdown)
-        let markdownResponse = `### Результаты поиска по запросу: "${query}"\n\n`;
+        // Начало ответа
+        let markdownResponse = `### Результаты для: "${query}"\n\n`;
 
-        ids.forEach((id) => {
+        // 3. Перебираем статьи, переводим и формируем список
+        for (const id of ids) {
             const article = articles[id];
             if (article) {
-                const title = article.title || "Без названия";
-                const date = article.pubdate || "Дата не указана";
-                const source = article.source || "Журнал не указан";
+                let title = article.title || "Без названия";
+                
+                // --- БЛОК ПЕРЕВОДА ---
+                try {
+                    const translation = await translate(title, { to: 'ru' });
+                    // Если перевод успешен, заменяем английский заголовок на русский
+                    title = translation.text; 
+                } catch (e) {
+                    console.error("Не удалось перевести заголовок:", e);
+                    // Если перевод сломался, останется английский заголовок
+                }
+                // ---------------------
+
                 const link = `https://pubmed.ncbi.nlm.nih.gov/${id}/`;
+                const date = article.pubdate || "Дата не указана";
+                const source = article.source || "Источник не указан";
 
-                // Формируем блок для каждой статьи
-                markdownResponse += `**[${title}](${link})**\n`;
-                markdownResponse += `*${source}, ${date}*\n\n`;
+                // Формируем красивую ссылку HTML, чтобы открывалась в новой вкладке (target="_blank")
+                markdownResponse += `<a href="${link}" target="_blank" style="font-weight:bold; color:#5896A6; text-decoration:none; font-size: 18px;">${title}</a>\n`;
+                markdownResponse += `<div style="margin-bottom: 5px; color: #555;"><i>${source}, ${date}</i></div>`;
                 markdownResponse += `ID: ${id}\n`;
-                markdownResponse += `---\n`; // Разделитель
+                markdownResponse += `---\n\n`; // Разделитель
             }
-        });
+        }
 
-        markdownResponse += `\n*Найдено ${searchData.esearchresult.count} публикаций. Показаны топ-5.*`;
+        // Итог внизу
+        markdownResponse += `*Найдено ${searchData.esearchresult.count} публикаций. Показаны топ-5.*`;
 
+        // Отправляем ответ на фронтенд
         res.status(200).json({ answer: markdownResponse });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ answer: "Произошла ошибка при обращении к PubMed API." });
+        res.status(500).json({ answer: "Произошла ошибка при поиске статей. Попробуйте позже." });
     }
 }
