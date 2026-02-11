@@ -5,6 +5,7 @@
     "start": "node api/search.js"
   },
   "dependencies": {
-    "node-fetch": "^3.3.0"
+    "node-fetch": "^3.3.0",
+    "google-translate-api-x": "^10.12.0"
   }
 }
