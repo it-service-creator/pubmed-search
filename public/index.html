@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PubMed AI Search</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        /* --- БАЗОВЫЕ СТИЛИ --- */
+        body { 
+            background-color: #f0f2f5; 
+            padding: 20px; 
+            margin: 0; 
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh; /* Центрируем поиск по вертикали */
+        }
+        
+        .t-container { 
+            width: 100%; 
+            max-width: 800px; 
+            margin: 0 auto; 
+        }
+
+        .pubmed-card {
+            background-color: #ffffff;
+            border-radius: 24px; 
+            box-shadow: 0 8px 30px rgba(0,0,0,0.06); 
+            padding: 30px; /* Немного увеличил отступы внутри */
+            box-sizing: border-box;
+            width: 100%;
+        }
+
+        /* --- СТИЛИ ЗАГОЛОВКА ПОИСКА (Анимация и иконка) --- */
+        .ai-title-row { 
+            display: flex; 
+            align-items: center; 
+            margin-bottom: 20px; 
+        }
+        .ai-loader-icon { 
+            width: 24px; height: 24px; color: #aaa; margin-right: 10px; 
+            display: flex; align-items: center; justify-content: center;
+        }
+        .ai-loader-icon svg { 
+            width: 18px; 
+            animation: ai-spin 10s linear infinite; 
+            display: block;
+        }
+
+        .ai-heading { 
+            font-weight: 500; font-size: 16px; color: #333; 
+            display: flex; align-items: center; height: 24px; line-height: 1;
+        }
+        
+        /* Курсор печатной машинки */
+        .cursor { 
+            display: inline-block; color: #5896A6; 
+            animation: blink 1s step-end infinite; margin-left: 2px; 
+            font-weight: 400; line-height: 24px; 
+        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* --- ПОЛЕ ВВОДА --- */
+        .ai-field-group {
+            display: flex; background: #f4f4f7; border-radius: 16px;
+            padding: 8px; border: 1px solid transparent; 
+            transition: all 0.3s ease; align-items: center; margin-top: 15px; 
+        }
+        .ai-field-group:focus-within { 
+            background: #fff; 
+            box-shadow: 0 0 0 3px rgba(0,0,0,0.05); 
+        }
+
+        #ai-query {
+            flex-grow: 1; border: none; background: transparent;
+            padding: 12px 15px; font-size: 16px; outline: none; color: #000; min-width: 0;
+        }
+        #ai-query::placeholder { color: #999; }
+
+        /* --- КНОПКА (Черная расширяющаяся) --- */
+        .expand-btn {
+            background: #000000; border: none; width: 44px; height: 44px; border-radius: 12px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            overflow: hidden; flex-shrink: 0; color: white;
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s; padding: 0;
+        }
+        .expand-btn svg { width: 20px; flex-shrink: 0; transition: margin 0.4s ease; }
+        .btn-text {
+            white-space: nowrap; opacity: 0; width: 0; font-size: 14px; font-weight: 600;
+            margin-right: 0; transition: opacity 0.3s ease, width 0.4s ease, margin 0.4s ease;
+        }
+
+        @media (hover: hover) {
+            .expand-btn:hover { width: 170px; background-color: #333; padding-right: 5px; }
+            .expand-btn:hover .btn-text { opacity: 1; width: 110px; margin-right: 8px; margin-left: 15px; }
+        }
+
+        /* --- СООБЩЕНИЯ ЧАТА --- */
+        #chat-history {
+            max-height: 60vh; /* Ограничиваем высоту, если ответов много */
+            overflow-y: auto;
+            margin-bottom: 10px;
+        }
+        /* Скрываем скроллбар для красоты */
+        #chat-history::-webkit-scrollbar { width: 0; }
+
+        .chat-user-msg {
+            margin-top: 20px; margin-bottom: 10px; padding: 15px 20px;
+            background: #eef1f5; border-radius: 16px;
+            color: #000; font-size: 16px; font-weight: 600;
+            border-left: 4px solid #5896A6; animation: fadeIn 0.3s ease;
+        }
+
+        .chat-ai-msg {
+            margin-bottom: 20px; padding: 25px;
+            background: #f8f9fa; border-radius: 16px;
+            border: 1px solid #eee; box-sizing: border-box;
+            width: 100%; overflow: hidden;
+            font-size: 15px; line-height: 1.6; color: #333; animation: fadeIn 0.4s ease;
+        }
+
+        /* Стилизация Markdown внутри ответа */
+        .chat-ai-msg ul, .chat-ai-msg ol { margin: 10px 0 15px 0 !important; padding-left: 30px !important; }
+        .chat-ai-msg li { margin-bottom: 8px !important; list-style-type: disc !important; }
+        .chat-ai-msg p { margin: 0 0 15px 0 !important; }
+        .chat-ai-msg strong, .chat-ai-msg b { font-weight: 700 !important; color: #000; }
+        .chat-ai-msg a { color: #5896A6; text-decoration: underline; font-weight: bold; }
+        .chat-ai-msg a:hover { text-decoration: none; }
+
+        /* Анимации */
+        @keyframes ai-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .ai-typing::after { content: '...'; display: inline-block; width: 20px; animation: dots 1.5s steps(3, end) infinite; }
+        @keyframes dots { 0%, 20% { content: ''; } 40% { content: '.'; } 60% { content: '..'; } 80%, 100% { content: '...'; } }
+
+        @media screen and (max-width: 500px) {
+            .pubmed-card { padding: 20px; }
+            .chat-ai-msg { padding: 15px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="t-container">
+    
+    <div class="pubmed-card search-card">
+        <div class="ai-search-block">
+            
+            <div class="ai-title-row">
+                <div class="ai-loader-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2V6M12 18V22M6 12H2M22 12H18M19.07 4.93L16.24 7.76M7.76 16.24L4.93 19.07M19.07 19.07L16.24 16.24M7.76 7.76L4.93 4.93" stroke-linecap="round"/></svg>
+                </div>
+                <div class="ai-heading">
+                    <span id="typewriter"></span><span class="cursor">|</span>
+                </div>
+            </div>
+
+            <div id="chat-history"></div>
+
+            <div class="ai-field-group">
+                <input type="text" id="ai-query" placeholder="Введите тему (например: covid, aspirin)..." onkeypress="if(event.key==='Enter') askAI()">
+                
+                <button onclick="askAI()" id="ai-btn" class="expand-btn" aria-label="Отправить вопрос">
+                    <span class="btn-text">Искать</span>
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<script>
+// --- ЭФФЕКТ ПЕЧАТНОЙ МАШИНКИ ---
+document.addEventListener("DOMContentLoaded", function() {
+    // Тексты, которые будут печататься в заголовке
+    const texts = [
+        "Поиск в базе PubMed...",
+        "Введите название болезни...",
+        "Введите название лекарства...",
+        "Научные статьи..."
+    ];
+    
+    const speed = 60; // Скорость печати
+    const deleteSpeed = 30; // Скорость удаления
+    const pauseTime = 2000; // Пауза перед удалением
+
+    let textIndex = 0;
+    let charIndex = 0;
+    let isDeleting = false;
+    const typeTarget = document.getElementById("typewriter");
+
+    function type() {
+        if (!typeTarget) return;
+
+        const currentText = texts[textIndex];
+        
+        if (isDeleting) {
+            typeTarget.textContent = currentText.substring(0, charIndex - 1);
+            charIndex--;
+        } else {
+            typeTarget.textContent = currentText.substring(0, charIndex + 1);
+            charIndex++;
+        }
+
+        let typeSpeed = isDeleting ? deleteSpeed : speed;
+
+        if (!isDeleting && charIndex === currentText.length) {
+            typeSpeed = pauseTime;
+            isDeleting = true;
+        } else if (isDeleting && charIndex === 0) {
+            isDeleting = false;
+            textIndex = (textIndex + 1) % texts.length;
+            typeSpeed = 500;
+        }
+
+        setTimeout(type, typeSpeed);
+    }
+
+    type();
+});
+
+// --- ЛОГИКА ОТПРАВКИ ЗАПРОСА ---
+async function askAI() {
+    const queryInput = document.getElementById('ai-query');
+    const historyContainer = document.getElementById('chat-history');
+    const btn = document.getElementById('ai-btn');
+    
+    const query = queryInput.value.trim();
+    if (!query) return;
+
+    // 1. Показываем вопрос пользователя
+    const userMsgDiv = document.createElement('div');
+    userMsgDiv.className = 'chat-user-msg';
+    userMsgDiv.textContent = query;
+    historyContainer.appendChild(userMsgDiv);
+
+    // 2. Показываем анимацию ожидания
+    const aiMsgDiv = document.createElement('div');
+    aiMsgDiv.className = 'chat-ai-msg';
+    aiMsgDiv.innerHTML = '<span class="ai-typing">Поиск статей</span>';
+    historyContainer.appendChild(aiMsgDiv);
+
+    // Очищаем поле ввода и блокируем кнопку
+    queryInput.value = '';
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+
+    // Скролл вниз к новому сообщению
+    historyContainer.scrollTop = historyContainer.scrollHeight;
+
+    try {
+        // Запрос к нашему Vercel API
+        const response = await fetch('/api/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: query })
+        });
+
+        if (!response.ok) throw new Error('Ошибка сети');
+        const data = await response.json();
+        
+        // Очищаем анимацию загрузки
+        aiMsgDiv.innerHTML = "";
+        
+        // Превращаем Markdown в HTML
+        let rawHtml = data.answer;
+        if (typeof marked !== 'undefined') {
+             rawHtml = marked.parse(data.answer);
+        }
+        
+        // Плавно показываем текст
+        displaySmoothly(rawHtml, aiMsgDiv);
+
+    } catch (error) {
+        aiMsgDiv.innerHTML = "<strong>Ошибка:</strong> Не удалось выполнить поиск. Попробуйте позже.";
+        console.error(error);
+    } finally {
+        btn.disabled = false;
+        btn.style.opacity = "1";
+        queryInput.focus();
+        // Еще раз скролл вниз, так как ответ мог быть длинным
+        setTimeout(() => {
+            historyContainer.scrollTop = historyContainer.scrollHeight;
+        }, 100);
+    }
+}
+
+// Плавное появление текста
+function displaySmoothly(html, element) {
+    element.innerHTML = html;
+    element.style.opacity = 0;
+    let opacity = 0;
+    const interval = setInterval(() => {
+        if (opacity >= 1) clearInterval(interval);
+        element.style.opacity = opacity;
+        opacity += 0.1;
+    }, 30);
+}
+</script>
+
+</body>
+</html>

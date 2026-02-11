@@ -1,0 +1,10 @@
+{
+  "name": "pubmed-ai-search",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node api/search.js"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.0"
+  }
+}
