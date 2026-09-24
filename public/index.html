@@ -266,12 +266,11 @@ async function askAI() {
         // Очищаем анимацию загрузки
         aiMsgDiv.innerHTML = "";
         
-        // Превращаем Markdown в HTML
-        let rawHtml = data.answer;
-        if (typeof marked !== 'undefined') {
-             rawHtml = marked.parse(data.answer);
-        }
-        
+        if (data.error) throw new Error(data.error);
+
+        // API возвращает { total, page, articles: [...] } — собираем HTML сами
+        const rawHtml = renderArticles(data, query);
+
         // Плавно показываем текст
         displaySmoothly(rawHtml, aiMsgDiv);
 
@@ -287,6 +286,43 @@ async function askAI() {
             historyContainer.scrollTop = historyContainer.scrollHeight;
         }, 100);
     }
+}
+
+// Экранирование текста перед вставкой в HTML
+function escapeHtml(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// Рендер списка статей из ответа /api/search
+function renderArticles(data, query) {
+    const articles = Array.isArray(data.articles) ? data.articles : [];
+    const total = Number(data.total) || 0;
+
+    if (articles.length === 0) {
+        return `По запросу <strong>"${escapeHtml(query)}"</strong> ничего не найдено в базе PubMed.`;
+    }
+
+    let html = `<h3>Результаты поиска по запросу: "${escapeHtml(query)}"</h3>`;
+
+    for (const a of articles) {
+        const titleRu = escapeHtml(a.titleRu || a.titleEn || 'Без названия');
+        const titleEn = a.titleEn && a.titleEn !== a.titleRu ? `<em>${escapeHtml(a.titleEn)}</em><br>` : '';
+        const authors = a.authors ? `${escapeHtml(a.authors)}<br>` : '';
+        const source = [a.source, a.pubdate].filter(Boolean).map(escapeHtml).join(', ');
+
+        html += `<p><strong><a href="${escapeHtml(a.link)}" target="_blank" rel="noopener">${titleRu}</a></strong><br>`;
+        html += titleEn;
+        html += authors;
+        if (source) html += `<em>${source}</em><br>`;
+        html += `ID: ${escapeHtml(a.id)}</p><hr>`;
+    }
+
+    html += `<p><em>Найдено ${total.toLocaleString('ru-RU')} публикаций. Показаны первые ${articles.length}.</em></p>`;
+    return html;
 }
 
 // Плавное появление текста
